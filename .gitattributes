@@ -1,0 +1,7 @@
+# Shell skriptlar va systemd unit fayllar har doim LF (Linux) bo'lishi kerak
+*.sh           text eol=lf
+*.service      text eol=lf
+deploy/**.conf text eol=lf
+
+# Boshqa fayllarni avtomatik aniqlash
+* text=auto
