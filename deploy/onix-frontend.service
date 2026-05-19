@@ -1,0 +1,18 @@
+[Unit]
+Description=Onix Platform Frontend (Next.js)
+After=network.target onix-backend.service
+
+[Service]
+Type=simple
+User=onix
+WorkingDirectory=/opt/onix-platform/frontend
+Environment="NODE_ENV=production"
+Environment="PORT=20151"
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
