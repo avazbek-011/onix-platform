@@ -1,43 +1,50 @@
 # Onix Platform — Deploy yo'riqnomasi
 
+> **⚠️ Xavfsizlik bayoni:** Bu deploy serverdagi **boshqa loyihalarga tegmaydi**:
+> - Faqat `/opt/onix-platform/` ichida ishlaydi
+> - Faqat `onix` foydalanuvchisi nomidan
+> - nginx ni faqat **graceful reload** qiladi (boshqa saytlar uzilmaydi)
+> - Faqat `onix-*` systemd servislari bilan ishlaydi
+> - Portlar (20150, 20151) oldindan bo'shligini tekshiradi
+> - `apt upgrade` qilmaydi (faqat yo'q paketlarni qo'shadi)
+
 Domen: **https://guruh.codingtech.uz**
+
+## Port taqsimoti
 
 | Komponent | Port | Tavsif |
 |-----------|------|--------|
-| Backend (FastAPI) | **20150** | Ichki, faqat 127.0.0.1 |
-| Frontend (Next.js) | **20151** | Ichki, faqat 127.0.0.1 |
-| Nginx | 80/443 | Ommaviy, SSL bilan |
+| Backend (FastAPI) | **20150** | 127.0.0.1 — faqat ichki |
+| Frontend (Next.js) | **20151** | 127.0.0.1 — faqat ichki |
+| Nginx (mavjud) | 80/443 | Domen orqali proxy |
 
-Portlar **20150-20200** oralig'idan tanlangan — boshqa servislarga to'qnashmaydi.
+Portlar **20150-20200** oralig'idan tanlangan — boshqa loyihalarga to'qnashmaydi.
 
 ---
 
-## 🚀 Tezkor o'rnatish (1 marta)
+## 🛡️ Avtomatik deploy (xavfsiz skript bilan)
 
-VPS server (Ubuntu 22.04+) da quyidagilarni bajaring:
+VPS server (Ubuntu 22.04+) da:
 
 ### 1. DNS ni sozlash
 Hosting/domen panelida `guruh.codingtech.uz` ni VPS IP manziliga yo'naltiring (A record).
 
-### 2. Deploy skriptini ishga tushirish
+### 2. Skriptni ishga tushirish
 ```bash
-# root yoki sudoer foydalanuvchi bilan
 ssh user@server.ip
 
-# Skriptni yuklab olish
-curl -fsSL https://raw.githubusercontent.com/avazbek-011/onix-platform/main/deploy/deploy.sh -o deploy.sh
-chmod +x deploy.sh
-sudo ./deploy.sh
+# Skriptni yuklab olish va ishga tushirish
+curl -fsSL https://raw.githubusercontent.com/avazbek-011/onix-platform/main/deploy/deploy.sh -o /tmp/onix-deploy.sh
+chmod +x /tmp/onix-deploy.sh
+sudo /tmp/onix-deploy.sh
 ```
 
-Skript avtomatik:
-- Tizim paketlarini o'rnatadi (python, nodejs, nginx, certbot)
-- `onix` foydalanuvchisini yaratadi
-- Repoyni `/opt/onix-platform` ga klonlaydi
-- Backend ga `venv` va paketlarni o'rnatadi
-- Frontend ni `npm run build` qiladi
-- systemd servislarini yoqadi (`onix-backend`, `onix-frontend`)
-- Nginx ni sozlaydi
+Skript avtomatik tekshiradi va xavfsiz bajaradi:
+- ✅ Portlar bo'shligi (20150, 20151) — band bo'lsa to'xtaydi
+- ✅ Domen boshqa nginx konfigda ishlatilmaganligi — bor bo'lsa to'xtaydi
+- ✅ Faqat YO'Q paketlarni o'rnatadi
+- ✅ Faqat `onix` foydalanuvchi bilan ishlaydi
+- ✅ nginx graceful reload (boshqa saytlar uzilmaydi)
 
 ### 3. `.env` ni tahrirlash
 ```bash
@@ -53,22 +60,87 @@ TG_API_HASH=e46c550f98e46809a6eae1d003918c91
 CORS_ORIGINS=https://guruh.codingtech.uz
 ```
 
-Saqlangach:
+Saqlangach restart:
 ```bash
 sudo systemctl restart onix-backend
 ```
 
-### 4. SSL sertifikat (HTTPS)
+### 4. SSL sertifikat
 ```bash
 sudo certbot --nginx -d guruh.codingtech.uz
 ```
 
-Email manzilingizni kiriting, qoidalarga roziligingizni bildiring, **Redirect HTTP to HTTPS** ni tanlang.
+Certbot mavjud nginx konfigingizning faqat **guruh.codingtech.uz** bloklariga SSL qo'shadi — boshqa saytlarga tegmaydi.
 
 ### 5. Tayyor!
-Brauzerda oching: **https://guruh.codingtech.uz**
+**https://guruh.codingtech.uz** — login: `admin` / `.env` da belgilangan parol.
 
-Login: `admin` / `.env` da belgilangan parol.
+---
+
+## 📝 Qo'lda deploy (skriptsiz)
+
+Agar skriptga ishonmasangiz, qadamlarni qo'lda bajaring:
+
+### 1. Foydalanuvchi va paketlar
+```bash
+sudo useradd -m -s /bin/bash onix
+sudo apt install -y python3-venv python3-pip nodejs npm nginx git
+```
+
+### 2. Repo
+```bash
+sudo mkdir -p /opt/onix-platform
+sudo chown onix:onix /opt/onix-platform
+sudo -u onix git clone https://github.com/avazbek-011/onix-platform.git /opt/onix-platform
+```
+
+### 3. Backend
+```bash
+cd /opt/onix-platform/backend
+sudo -u onix python3 -m venv venv
+sudo -u onix ./venv/bin/pip install -r requirements.txt
+sudo -u onix ./venv/bin/pip install "bcrypt==4.0.1"
+sudo -u onix cp .env.example .env
+sudo nano .env  # TG keylar, parol kiriting
+sudo chmod 600 .env
+```
+
+### 4. Frontend
+```bash
+cd /opt/onix-platform/frontend
+echo 'NEXT_PUBLIC_API_URL=https://guruh.codingtech.uz' | sudo -u onix tee .env.local
+sudo -u onix npm ci
+sudo -u onix npm run build
+```
+
+### 5. systemd
+```bash
+sudo cp /opt/onix-platform/deploy/onix-backend.service  /etc/systemd/system/
+sudo cp /opt/onix-platform/deploy/onix-frontend.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now onix-backend onix-frontend
+```
+
+### 6. nginx (mavjud nginx-ga zarar bermay)
+```bash
+# Avval domen boshqa konfigda yo'qligini tekshirish
+grep -rl "server_name guruh.codingtech.uz" /etc/nginx/sites-enabled/
+
+# Bo'sh bo'lsa - davom etamiz
+sudo cp /opt/onix-platform/deploy/nginx.conf /etc/nginx/sites-available/guruh.codingtech.uz.conf
+sudo ln -sf /etc/nginx/sites-available/guruh.codingtech.uz.conf /etc/nginx/sites-enabled/
+
+# Konfigni sinash (xato bo'lsa, hech narsa o'zgarmaydi)
+sudo nginx -t
+
+# Graceful reload - boshqa saytlar uzilmaydi
+sudo nginx -s reload
+```
+
+### 7. SSL
+```bash
+sudo certbot --nginx -d guruh.codingtech.uz
+```
 
 ---
 
@@ -80,93 +152,101 @@ GitHub-ga yangi commit yuklaganingizdan keyin:
 sudo /opt/onix-platform/deploy/deploy.sh
 ```
 
-Bu git pull qiladi, paketlarni yangilaydi, frontend ni qayta build qiladi va servislarni restart qiladi.
+Yoki qo'lda:
+```bash
+sudo -u onix git -C /opt/onix-platform pull
+sudo -u onix /opt/onix-platform/backend/venv/bin/pip install -r /opt/onix-platform/backend/requirements.txt
+cd /opt/onix-platform/frontend && sudo -u onix npm install && sudo -u onix npm run build
+sudo systemctl restart onix-backend onix-frontend
+```
 
 ---
 
-## 🔧 Foydali buyruqlar
+## 🛠 Foydali buyruqlar
 
 ```bash
-# Servis holati
-sudo systemctl status onix-backend onix-frontend nginx
+# Faqat onix servislari holati
+sudo systemctl status onix-backend onix-frontend
 
-# Loglarni real-time ko'rish
+# Faqat onix log
 sudo journalctl -u onix-backend -f
 sudo journalctl -u onix-frontend -f
 
-# Restart
+# Faqat onix restart
 sudo systemctl restart onix-backend
 sudo systemctl restart onix-frontend
-sudo systemctl reload nginx
 
-# Nginx config tekshirish
+# nginx (FAQAT bizning saytni emas, hammasini sinab ko'radi):
 sudo nginx -t
+sudo nginx -s reload   # graceful, boshqa saytlar uzilmaydi
 
-# SSL yangilash (avtomatik certbot timer ishlaydi, lekin qo'lda):
-sudo certbot renew --dry-run
+# Bizning saytni o'chirish (boshqalariga tegmaydi):
+sudo rm /etc/nginx/sites-enabled/guruh.codingtech.uz.conf
+sudo nginx -s reload
+sudo systemctl stop onix-backend onix-frontend
 ```
+
+---
+
+## 🚨 Boshqa loyihalarga zarar yetmasligi uchun
+
+Quyidagilarni **HECH QACHON** qilmang:
+
+❌ `sudo systemctl restart nginx` — barcha saytlar uziladi  
+✅ `sudo nginx -s reload` — faqat konfigni qayta o'qiydi  
+
+❌ `sudo apt upgrade` — boshqa loyihalar buzilishi mumkin  
+✅ `sudo apt install <kerakli-paket>` — faqat yo'qni o'rnatadi  
+
+❌ `sudo rm /etc/nginx/sites-enabled/*` — barcha saytlar o'chadi  
+✅ `sudo rm /etc/nginx/sites-enabled/guruh.codingtech.uz.conf` — faqat shu  
+
+❌ Default `/etc/nginx/sites-available/default` ga tegmang  
+✅ Alohida `.conf` fayl bilan ishlang  
 
 ---
 
 ## 📁 Fayl tuzilishi (serverda)
 
 ```
-/opt/onix-platform/
+/opt/onix-platform/           ← Faqat shu yerda joylashadi
 ├── backend/
-│   ├── venv/                  # Python paketlar
-│   ├── .env                   # Sirlar (HEC KIMGA bermang!)
-│   ├── onix.db                # SQLite DB
-│   └── sessions/              # Telethon sessiyalari (xavfsiz saqlang!)
+│   ├── venv/                 ← Izolyatsiyalangan Python paketlar
+│   ├── .env                  ← chmod 600, onix:onix
+│   ├── onix.db
+│   └── sessions/             ← Telethon sessiyalari
 ├── frontend/
-│   ├── node_modules/
-│   ├── .next/                 # Build natijasi
-│   └── .env.local             # NEXT_PUBLIC_API_URL
+│   ├── node_modules/         ← Lokal, global emas
+│   ├── .next/
+│   └── .env.local
 └── deploy/
-    ├── nginx.conf
-    ├── onix-backend.service
-    ├── onix-frontend.service
-    └── deploy.sh
+
+/etc/systemd/system/
+├── onix-backend.service       ← Yagona "onix-" prefiks
+└── onix-frontend.service
+
+/etc/nginx/sites-available/
+└── guruh.codingtech.uz.conf   ← Yagona fayl, mavjudlar tegilmaydi
 ```
 
 ---
 
-## ⚠️ Xavfsizlik
+## ⚠️ Xavfsizlik tavsiyalari
 
-- `backend/.env` — TG_API_HASH va parollar. Faqat `onix` foydalanuvchisi o'qishi kerak:
+- `backend/.env`:
   ```bash
   sudo chmod 600 /opt/onix-platform/backend/.env
   sudo chown onix:onix /opt/onix-platform/backend/.env
   ```
-- `backend/sessions/` — Telethon sessiya fayllari = Telegram akkountga to'liq kirish. Backup oling, lekin maxfiy saqlang.
-- Boshliq parolini birinchi loginingizda **albatta o'zgartiring**.
+- Boshliq parolini birinchi kirgan zahoti o'zgartiring.
 - Firewall (UFW):
   ```bash
   sudo ufw allow ssh
   sudo ufw allow 'Nginx Full'
   sudo ufw enable
+  # 20150-20200 ochilmasin — faqat 127.0.0.1 da ishlaydi
   ```
-  Portlar 20150-20200 ochilmasin — ular faqat ichki ishlash uchun.
-
----
-
-## 🐛 Muammoni hal qilish
-
-### Backend ishlamayapti
-```bash
-sudo journalctl -u onix-backend -n 50
-```
-
-### Frontend xato beradi
-```bash
-sudo journalctl -u onix-frontend -n 50
-cd /opt/onix-platform/frontend && sudo -u onix npm run build
-```
-
-### 502 Bad Gateway
-Servislar yiqilgan. Restart qiling:
-```bash
-sudo systemctl restart onix-backend onix-frontend
-```
-
-### CORS xatosi
-`.env` da `CORS_ORIGINS=https://guruh.codingtech.uz` ekanini tekshiring.
+- Backup:
+  ```bash
+  sudo tar czf onix-backup-$(date +%F).tar.gz /opt/onix-platform/backend/onix.db /opt/onix-platform/backend/sessions/
+  ```
